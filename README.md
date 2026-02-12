@@ -1,88 +1,77 @@
 README By ChatGPT, partially reviewed by myself!
 
-⸻
+# 🚀 AWS Amplify Build Optimization
 
-🚀 Amplify Node.js Build Optimization with Prebuilt Docker Images
+## Prebuilding `node_modules` with Docker + GitHub Actions + ECR
 
-📌 Overview
+------------------------------------------------------------------------
 
-This repository demonstrates a practical optimization technique for AWS Amplify Node.js builds.
+## 📌 Overview
+
+This repository demonstrates a practical optimization strategy for **AWS
+Amplify Node.js builds**.
 
 Instead of running:
 
+``` bash
 npm ci
+```
 
-during every Amplify build — and relying on Amplify’s cache — this project uses:
-	•	🐳 A prebuilt Docker image
-	•	⚙️ GitHub Actions
-	•	📦 AWS ECR
-	•	🔁 Trigger only when package-lock.json changes
+inside every Amplify build (which increases build time and cost), this
+approach:
 
-The result:
+-   🐳 Builds a Docker image that installs `node_modules`
+-   ⚙️ Uses GitHub Actions to build & push the image to AWS ECR
+-   🔁 Triggers only when `package-lock.json` changes
+-   📦 Amplify pulls the prebuilt image and reuses dependencies
 
-Before	After
-⏱ 11–12 minutes	⏱ 5–6 minutes
-💸 Higher Amplify cost	💰 Reduced build cost
+### 🎯 Result
 
+  Scenario                   Build Time
+  -------------------------- ------------------
+  Default Amplify (npm ci)   \~11--12 minutes
+  Prebuilt image strategy    \~5--6 minutes
 
-⸻
+This reduces: - Amplify build duration\
+- Amplify billed minutes\
+- Deployment latency\
+- CI wait time
 
-🎯 The Idea
+------------------------------------------------------------------------
 
-Amplify runs npm ci during every build, which:
-	•	Downloads dependencies
-	•	Installs node_modules
-	•	Takes several minutes
-	•	Consumes build minutes (cost)
+# 🏗 Architecture
 
-Instead of installing dependencies inside Amplify:
+``` mermaid
+flowchart LR
+    A[GitHub Repository] --> B[GitHub Actions]
+    B -->|On package-lock change| C[Build Docker Image]
+    C --> D[Push to AWS ECR]
+    E[AWS Amplify Build] --> F[Pull Image from ECR]
+    F --> G[Reuse node_modules + Build App]
+```
 
-✅ We pre-build an image containing node_modules
-✅ Push it to AWS ECR
-✅ Amplify build reuses the pre-installed dependencies
+------------------------------------------------------------------------
 
-This removes dependency installation from the Amplify build phase.
+# 📂 Repository Structure
 
-⸻
+This repository contains only the files required to demonstrate the
+optimization pattern:
 
-🏗 Architecture
+    Dockerfile.build
+    .github/workflows/amplify-build-image.yml
+    package.json
+    package-lock.json
+    amplify.yaml
 
-GitHub Repository
-        │
-        ├── Dockerfile.build
-        ├── package.json
-        ├── package-lock.json
-        │
-        ▼
-GitHub Actions
-(.github/workflows/amplify-build-image.yml)
-        │
-        │  If package-lock.json changed
-        ▼
-Build Docker Image
-        │
-        │  npm ci executed HERE
-        ▼
-Push Image to AWS ECR
-        │
-        ▼
-AWS Amplify Build
-(amplify.yaml)
-        │
-        │ Pull latest ECR image
-        │ Reuse node_modules
-        ▼
-Faster Build 🚀
+Each file plays a specific role in the optimization flow.
 
+------------------------------------------------------------------------
 
-⸻
+# 🐳 Dockerfile.build
 
-📂 Key Files Explained
+The Dockerfile installs dependencies once and bakes them into the image.
 
-🐳 Dockerfile.build
-
-Builds a Node.js image and installs dependencies:
-
+``` dockerfile
 FROM node:20-alpine
 
 WORKDIR /app
@@ -92,137 +81,117 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+```
 
-CMD ["npm", "run", "build"]
+Key idea: - Dependencies are installed inside Docker - The resulting
+image contains a ready-to-use `node_modules`
 
-Dependencies are installed once inside this image.
+------------------------------------------------------------------------
 
-⸻
+# ⚙️ GitHub Actions Workflow
 
-⚙️ .github/workflows/amplify-build-image.yml
+Located in:
 
-GitHub Actions workflow that:
-	•	Triggers when package-lock.json changes
-	•	Builds the Docker image
-	•	Pushes the image to AWS ECR
+    .github/workflows/amplify-build-image.yml
 
-This ensures dependencies are rebuilt only when needed.
+This workflow:
 
-⸻
+-   Runs only when `package-lock.json` changes
+-   Builds the Docker image
+-   Pushes it to AWS ECR
+-   Tags it as `latest`
 
-📦 package.json / package-lock.json
+Example simplified job:
 
-package-lock.json is the trigger point.
+``` yaml
+on:
+  push:
+    paths:
+      - 'package-lock.json'
 
-When it changes:
-	•	New dependencies → new Docker image
-	•	No changes → no rebuild → Amplify reuses previous image
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/amazon-ecr-login@v2
+      - run: |
+          docker build -f Dockerfile.build -t $ECR_REGISTRY/my-app:latest .
+          docker push $ECR_REGISTRY/my-app:latest
+```
 
-⸻
+This ensures dependency images are rebuilt only when necessary.
 
-🏗 amplify.yaml
+------------------------------------------------------------------------
 
-Amplify build configuration.
+# 📦 Amplify Build (amplify.yaml)
 
-Instead of running npm ci, the build:
-	•	Pulls the latest image from ECR
-	•	Uses pre-installed node_modules
-	•	Proceeds directly to the build step
+Amplify no longer runs `npm ci`.
 
-Example idea:
+Instead, it pulls the prebuilt image:
 
-preBuild:
-  commands:
-    - docker pull <your-ecr-image>:latest
+``` yaml
+version: 1
+applications:
+  - frontend:
+      phases:
+        preBuild:
+          commands:
+            - docker pull $ECR_REGISTRY/my-app:latest
+        build:
+          commands:
+            - npm run build
+```
 
-build:
-  commands:
-    - npm run build
+This avoids reinstalling dependencies inside Amplify.
 
-No dependency installation during Amplify build.
+------------------------------------------------------------------------
 
-⸻
+# 💡 Why This Saves Money
 
-📊 Why This Works
+Amplify charges for build minutes.
 
-Default Amplify Flow
+Installing dependencies during every build: - Consumes significant
+time - Increases CI duration - Increases cost
 
-npm ci → 5-6 minutes
-build → 4-5 minutes
-Total: 11-12 minutes
+By moving dependency installation to GitHub Actions and only rebuilding
+when the lockfile changes, we: - Reduce repeated work - Make builds
+deterministic - Cut build time nearly in half
 
-Optimized Flow
+------------------------------------------------------------------------
 
-Pull image → ~30 seconds
-build → 4-5 minutes
-Total: 5-6 minutes
+# 🧠 When to Use This Pattern
 
+This technique is ideal when:
 
-⸻
+-   Your project has heavy dependencies
+-   Amplify builds are frequent
+-   `npm ci` is the slowest step
+-   You want predictable builds tied to `package-lock.json`
 
-💰 Cost Optimization Impact
+------------------------------------------------------------------------
 
-Amplify billing is based on build minutes.
+# 📢 LinkedIn Context
 
-Cutting build time in half:
-	•	Reduces build cost
-	•	Reduces CI time
-	•	Speeds up deployments
-	•	Improves developer experience
+This repository accompanies the following idea:
 
-⸻
+> "While having fun developing my new personal full stack (AWS Amplify)
+> app, I discovered that avoiding `npm ci` inside Amplify builds and
+> instead prebuilding dependencies in a Docker image (triggered only
+> when `package-lock.json` changes) can reduce build time from \~12
+> minutes to \~6 minutes."
 
-🧠 When to Use This
+------------------------------------------------------------------------
 
-This strategy is ideal when:
-	•	You have heavy Node.js dependencies
-	•	Builds run frequently
-	•	npm ci is the biggest bottleneck
-	•	You want deterministic builds based on package-lock.json
+# 🤝 Contribution
 
-⸻
+This repository is intended to demonstrate a CI/CD optimization
+technique.\
+Feel free to fork, adapt, and improve.
 
-⚠️ Trade-offs
-	•	Slightly more complex CI setup
-	•	Requires ECR access
-	•	Docker image maintenance
+------------------------------------------------------------------------
 
-But for active projects, the time savings are significant.
+# 📬 Author
 
-⸻
-
-🧪 How to Reproduce
-	1.	Configure AWS ECR repository
-	2.	Add GitHub secrets for:
-	•	AWS_ACCESS_KEY_ID
-	•	AWS_SECRET_ACCESS_KEY
-	•	AWS_REGION
-	3.	Configure .github/workflows/amplify-build-image.yml
-	4.	Modify amplify.yaml to pull image
-	5.	Push changes
-	6.	Observe reduced Amplify build times
-
-⸻
-
-📢 LinkedIn Post Context
-
-This repository supports the following post:
-
-“While having fun developing my new personal full stack (AWS Amplify) app, one trick I found to save money on NodeJS builds is to avoid doing npm ci in Amplify and instead build a Docker image whenever package-lock.json changes. By doing this, I reduced Amplify build time from 11–12 minutes to 5–6 minutes.”
-
-⸻
-
-🛠 Future Improvements
-	•	Multi-stage Docker builds
-	•	Layer caching improvements
-	•	Separate dev/prod images
-	•	pnpm support
-	•	TurboRepo support
-
-⸻
-
-🤝 Contributions
-
-This is a demonstration repository for build optimization strategy sharing.
-
-Feel free to fork and adapt.
+Created by **Fares Belhaouas**\
+AWS Amplify enthusiast & full-stack developer
