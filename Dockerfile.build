@@ -1,0 +1,64 @@
+FROM node:22.14.0-bookworm-slim AS base
+
+LABEL org.opencontainers.image.source="https://github.com/fbelhaouas/ooysroo-amplify-public"
+LABEL org.opencontainers.image.description="Ooysroo Amplify Build Image with Node 22 and Chromium"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    NODE_ENV=production \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Install system dependencies and Chromium
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    git ca-certificates curl bash zstd \
+    chromium chromium-sandbox \
+    libatk-bridge2.0-0 libatk1.0-0 libnss3 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create Chrome symlinks for compatibility
+RUN ln -sf /usr/bin/chromium /usr/bin/chrome \
+    && ln -sf /usr/bin/chromium /usr/bin/google-chrome
+
+# Set environment variables for Angular/Karma testing
+ENV CHROME_BIN=/usr/bin/chromium \
+    CHROMIUM_BIN=/usr/bin/chromium \
+    CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
+
+# Install npm
+RUN npm i -g npm@10.9.2
+
+COPY --chown=node:node package-lock.json /opt/preinstalled/
+
+# ---- builder stage ----
+FROM base AS builder
+WORKDIR /tmp/preinstalled
+
+# copy package manifests into build stage only
+COPY --chown=node:node package.json package-lock.json ./
+
+# install -> pack -> cleanup (all in one RUN so artifacts don't leak)
+RUN npm ci --include=dev --cache .cache --prefer-offline --no-audit --no-fund \
+    && tar --use-compress-program=zstd -cf /opt/preinstalled/node_modules.compressed -C . node_modules \
+    && rm -rf node_modules .cache
+
+# ensure ownership of the compressed file
+RUN chown -R node:node /opt/preinstalled
+
+# ---- final image ----
+FROM base AS final
+# copy only the compressed tarball to final image
+COPY --from=builder /opt/preinstalled/node_modules.compressed /opt/preinstalled/node_modules.compressed
+RUN chown -R node:node /opt/preinstalled
+
+# switch to unprivileged user and workspace
+USER node
+WORKDIR /workspace
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -v || exit 1
+
+CMD ["node", "-v"]

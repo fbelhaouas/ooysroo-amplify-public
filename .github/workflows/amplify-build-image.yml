@@ -1,0 +1,106 @@
+name: Build Amplify Build Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.build"
+      - ".github/workflows/amplify-build-image.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: my-ecr-repos/amplify-node22-build
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(date +%Y%m%d)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+          # Get version from package.json or use default
+          if [ -f "package.json" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          else
+            VERSION="2.0.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build Amplify build image
+        run: |
+          docker build --platform linux/amd64 -t ${{ env.ECR_REPOSITORY }} -f Dockerfile.build .
+
+      - name: Tag with multiple versions
+        run: |
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          REPO=${{ env.ECR_REPOSITORY }}
+
+          # Tag with various identifiers
+          docker tag $REPO $REGISTRY/$REPO:${{ steps.meta.outputs.sha }}
+          docker tag $REPO $REGISTRY/$REPO:${{ steps.meta.outputs.date }}
+          docker tag $REPO $REGISTRY/$REPO:${{ steps.meta.outputs.version }}
+
+          # Tag as latest on main branch
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            docker tag $REPO $REGISTRY/$REPO:latest
+            docker tag $REPO $REGISTRY/$REPO:main
+          fi
+
+      - name: Push to ECR
+        run: |
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          REPO=${{ env.ECR_REPOSITORY }}
+
+          # Push SHA tag
+          docker push $REGISTRY/$REPO:${{ steps.meta.outputs.sha }}
+
+          # Push date tag
+          docker push $REGISTRY/$REPO:${{ steps.meta.outputs.date }}
+
+          # Push version tag
+          docker push $REGISTRY/$REPO:${{ steps.meta.outputs.version }}
+
+          # Push latest/main only on main branch
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            docker push $REGISTRY/$REPO:latest
+            docker push $REGISTRY/$REPO:main
+          fi
+
+      - name: Output image details
+        run: |
+          echo "✅ Amplify build image pushed to ECR"
+          echo "Registry: ${{ steps.login-ecr.outputs.registry }}"
+          echo "Repository: ${{ env.ECR_REPOSITORY }}"
+          echo "Available tags:"
+          echo "  - ${{ steps.meta.outputs.sha }}"
+          echo "  - ${{ steps.meta.outputs.date }}"
+          echo "  - ${{ steps.meta.outputs.version }}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "  - latest"
+            echo "  - main"
+          fi
+          echo ""
+          echo "To use in Amplify, set custom image to:"
+          echo "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"

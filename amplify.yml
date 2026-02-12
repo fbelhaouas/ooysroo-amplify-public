@@ -1,0 +1,51 @@
+version: 1
+backend:
+  phases:
+    preBuild:
+      commands:
+        - node -v
+        # insert into the same build phase (preBuild) where npm ci currently runs
+        - echo ">>> Try to reuse preinstalled node_modules from image"
+        - if [ -f /opt/preinstalled/package-lock.json ]; then
+            echo "Found baked package-lock in image, comparing lockfiles...";
+            if cmp -s package-lock.json /opt/preinstalled/package-lock.json; then
+              echo "Lockfiles match — linking preinstalled node_modules";
+              rm -rf node_modules || true;
+              tar --use-compress-program=zstd -xf /opt/preinstalled/node_modules.compressed -C .
+              ls -la node_modules | sed -n '1,10p';
+            else
+              echo "Lockfile differs — running npm ci (and not linking)";
+              time npm ci --include=dev --prefer-offline --no-audit --no-fund;
+            fi
+          else
+            echo "No baked lockfile in image — running npm ci";
+            time npm ci --include=dev --prefer-offline --no-audit --no-fund;
+          fi
+    build:
+      commands:
+        - npm run test:amplify
+        - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+    cache:
+      paths:
+        - .amplify/**/*
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - node -v
+        - npx ng version
+        # Debug: Check if Chrome is available
+        - which chromium || echo "Chromium not found"
+        - ls -la /usr/bin/chrom* || echo "No chromium binaries"
+        - $CHROME_BIN --version || echo "Cannot run chrome"
+    build:
+      commands:
+        - npx ng test --browsers=ChromeHeadless --watch=false
+        - npx ng build --configuration=production
+  artifacts:
+    baseDirectory: dist/ooysroo-amplify-public/browser
+    files:
+      - "**/*"
+  cache:
+    paths:
+      - .amplify/**/*

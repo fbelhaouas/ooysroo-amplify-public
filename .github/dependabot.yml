@@ -1,0 +1,46 @@
+# force 20260102-0127
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      amplify-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "constructs"
+          - "@aws-amplify/backend"
+          - "@aws-amplify/backend-cli"
+      angular:
+        patterns:
+          - "@angular/*"
+          - "@angular-devkit/*"
+      ionic:
+        patterns:
+          - "@ionic/*"
+          - "ionicons"
+      aws-frontend:
+        patterns:
+          - "aws-amplify"
+          - "@aws-amplify/*"
+          - "@aws-sdk/*"
+      tooling:
+        patterns:
+          - "karma*"
+          - "jasmine*"
+          - "typescript"
+          - "ts-node"
+          - "tsx"
+          - "esbuild"
+
+  - package-ecosystem: "npm"
+    directory: "/amplify"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "dependabot"
