@@ -53,7 +53,7 @@
     "aws-cdk": "^2.1105.0",
     "aws-cdk-lib": "^2.237.1",
     "constructs": "^10.4.5",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.27.3",
     "jasmine-core": "~6.0.1",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "~3.2.0",
