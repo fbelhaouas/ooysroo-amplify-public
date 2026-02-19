@@ -34,7 +34,7 @@
     "ionicons": "^8.0.13",
     "nodemailer": "^8.0.0",
     "rxjs": "~7.8.2",
-    "swiper": "^12.1.0",
+    "swiper": "^12.1.2",
     "tslib": "^2.3.0",
     "twilio": "^5.12.1",
     "uglify-es": "^3.3.10",
