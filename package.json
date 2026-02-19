@@ -38,7 +38,7 @@
     "tslib": "^2.3.0",
     "twilio": "^5.12.1",
     "uglify-es": "^3.3.10",
-    "zone.js": "~0.15.0"
+    "zone.js": "~0.16.0"
   },
   "devDependencies": {
     "@angular/build": "^21.1.2",
